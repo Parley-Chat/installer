@@ -257,7 +257,7 @@ def do_install():
     instance_password = ""
     invite = ""
     threads = 32
-    calls = True
+    calls = False
 
     if custom:
         external_port = int(ask("nginx HTTPS port", str(external_port)))
@@ -267,7 +267,7 @@ def do_install():
         instance_password = ask("Instance password (empty = none)", "")
         invite = ask("Auto-invite channel ID (empty = none)", "")
         threads = int(ask("Threads", "32"))
-        calls = ask("Enable voice calls? [Y/n]", "y").lower() != "n"
+        calls = ask("Enable voice calls? [y/N]", "n").lower() == "y"
 
     arch = get_arch()
     nginx_conf = f"{install_dir}/nginx.conf"
