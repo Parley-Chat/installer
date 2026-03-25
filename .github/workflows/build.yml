@@ -1,0 +1,100 @@
+# Place this file at .github/workflows/build.yml in the installer repo
+name: Build Parley Chat
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.0.0)"
+        required: true
+
+jobs:
+  build-binaries:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout installer
+        uses: actions/checkout@v4
+
+      - name: Checkout Sova
+        uses: actions/checkout@v4
+        with:
+          repository: Parley-Chat/Sova
+          path: Sova
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r Sova/requirements.txt
+
+      - name: Build Sova
+        run: pyinstaller --onefile --name sova-linux-${{ matrix.arch }} --paths Sova Sova/main.py
+
+      - name: Build installer
+        run: pyinstaller --onefile --name installer-linux-${{ matrix.arch }} install.py
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: |
+            dist/sova-linux-${{ matrix.arch }}
+            dist/installer-linux-${{ matrix.arch }}
+
+  build-mura:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Mura
+        uses: actions/checkout@v4
+        with:
+          repository: Parley-Chat/Mura
+          path: Mura
+
+      - name: Zip Mura
+        # Zip from inside Mura so files are at root of zip, not inside a Mura/ subfolder
+        run: cd Mura && zip -r ../mura.zip .
+
+      - name: Upload mura.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: mura
+          path: mura.zip
+
+  release:
+    needs: [build-binaries, build-mura]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout installer
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Parley Chat ${{ inputs.version }}
+          files: |
+            dist/sova-linux-x64
+            dist/sova-linux-arm64
+            dist/installer-linux-x64
+            dist/installer-linux-arm64
+            dist/mura.zip
+            install.sh
