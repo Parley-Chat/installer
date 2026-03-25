@@ -17,9 +17,11 @@ def system_env():
         env.pop("LD_LIBRARY_PATH", None)
     return env
 
+_real_run = subprocess.run
+
 def sysrun(*args, **kwargs):
     kwargs.setdefault("env", system_env())
-    return sysrun(*args, **kwargs)
+    return _real_run(*args, **kwargs)
 
 def get_arch():
     m = platform.machine().lower()
