@@ -82,6 +82,14 @@ def install_certbot():
     print("  certbot not found, installing...")
     install_package("certbot")
 
+def setup_renewal_cron():
+    # Adds a twice-daily cron job to renew certificates and restart nginx on success.
+    # Our nginx is not on port 80 so no pre/post hooks needed to free the port.
+    cron_job = "0 0,12 * * * /usr/bin/certbot renew --quiet --deploy-hook \"systemctl restart parley-chat-nginx\""
+    existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+    if "certbot renew" not in existing:
+        subprocess.run(["crontab", "-"], input=existing.rstrip() + "\n" + cron_job + "\n", text=True, check=True)
+
 def get_cert_http(domain, email):
     # Uses certbot standalone - port 80 must be free and reachable from the internet
     install_certbot()
@@ -89,9 +97,9 @@ def get_cert_http(domain, email):
         "certbot", "certonly", "--standalone",
         "-d", domain,
         "--non-interactive", "--agree-tos",
-        "-m", email,
-        "--deploy-hook", "systemctl restart parley-chat-nginx"
+        "-m", email
     ], check=True)
+    setup_renewal_cron()
     return f"/etc/letsencrypt/live/{domain}/fullchain.pem", f"/etc/letsencrypt/live/{domain}/privkey.pem"
 
 def get_cert_dns(domain, email):
