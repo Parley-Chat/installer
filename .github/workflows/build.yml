@@ -90,7 +90,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
-          name: Parley Chat ${{ inputs.version }}
+          name: ${{ inputs.version }}
+          generate_release_notes: true
           files: |
             dist/sova-linux-x64
             dist/sova-linux-arm64
