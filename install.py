@@ -331,6 +331,8 @@ def do_install():
         invite = ask("Auto-invite channel ID (empty = none)", "")
         threads = int(ask("Threads", "32"))
         calls = ask("Enable voice calls? [y/N]", "n").lower() == "y"
+    else:
+        instance_password = ask("Instance password (empty = none)", "")
 
     arch = get_arch()
 
