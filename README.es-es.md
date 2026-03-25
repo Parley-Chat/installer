@@ -1,6 +1,6 @@
 # Parley Chat Instalador
 
-[🇬🇧 English](README.md) | [🇮🇷 فارسی](README_FA.md)
+[🇬🇧 English](README.md) | [🇮🇷 فارسی](README.fa.md)
 
 Instalador automático para [Parley Chat](https://github.com/Parley-Chat). Configura el backend (Sova), el frontend (Mura), nginx como proxy inversa de SSL y los servicios de systemd con un solo comando.
 
