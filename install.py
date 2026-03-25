@@ -191,16 +191,20 @@ def setup_ssl(domain, install_dir):
         gen_self_signed(cert_file, key_file, domain)
         return cert_file, key_file, "self-signed"
 
-def write_nginx_conf(conf_path, cert_file, key_file, external_port, sova_host, internal_port):
-    # Adapted from Sova's nginx.conf, using sova_host:internal_port instead of Docker service name
+def write_nginx_conf(conf_path, cert_file, key_file, domain, external_port, sova_host, internal_port):
     with open(conf_path, "w") as f:
         f.write(f"""events {{
     worker_connections 1024;
 }}
 
 http {{
+    map $http_host $browser_authority {{
+        default $http_host;
+        ""      $host;
+    }}
     server {{
         listen {external_port} ssl http2;
+        server_name {domain};
 
         ssl_certificate {cert_file};
         ssl_certificate_key {key_file};
@@ -226,6 +230,7 @@ http {{
             proxy_read_timeout 24h;
             proxy_send_timeout 24h;
             client_max_body_size 64M;
+            proxy_redirect ~^https?://[^/]+(.*)$ $scheme://$browser_authority$1;
         }}
     }}
 }}""")
@@ -367,7 +372,7 @@ def do_install():
         nginx_conf = f"{install_dir}/nginx.conf"
         print("  Setting up nginx...")
         install_nginx()
-        write_nginx_conf(nginx_conf, cert_file, key_file, external_port, sova_host, internal_port)
+        write_nginx_conf(nginx_conf, cert_file, key_file, domain, external_port, sova_host, internal_port)
         write_service("parley-chat-nginx", "Parley Chat nginx", install_dir, f"/usr/sbin/nginx -c {nginx_conf} -g 'daemon off;'")
 
     print("  Starting services...")
