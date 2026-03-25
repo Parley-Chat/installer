@@ -51,21 +51,28 @@ def install_openssl():
     print("  openssl not found, installing...")
     install_package("openssl")
 
-# Uses openssl CLI instead of the cryptography library to keep the installer binary small
+# Uses openssl CLI instead of the cryptography library to keep the installer binary small.
+# Uses a temp config file for SAN support instead of -addext (works on all OpenSSL versions).
 def gen_self_signed(cert_file, key_file, domain):
+    import tempfile
     try:
         ip = ipaddress.ip_address(domain)
         san = f"IP:{ip}"
     except ValueError:
         san = f"DNS:{domain}"
     install_openssl()
-    subprocess.run([
-        "openssl", "req", "-x509", "-newkey", "rsa:2048",
-        "-keyout", key_file, "-out", cert_file,
-        "-days", "3650", "-nodes",
-        "-subj", f"/CN={domain}",
-        "-addext", f"subjectAltName={san}"
-    ], check=True, capture_output=True)
+    cfg = f"[req]\ndistinguished_name=req_dn\nx509_extensions=san_ext\nprompt=no\n[req_dn]\nCN={domain}\n[san_ext]\nsubjectAltName={san}\n"
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".cnf", delete=False) as f:
+        f.write(cfg)
+        cfg_path = f.name
+    try:
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", key_file, "-out", cert_file,
+            "-days", "3650", "-nodes", "-config", cfg_path
+        ], check=True)
+    finally:
+        os.unlink(cfg_path)
 
 def nginx_installed():
     return (shutil.which("nginx") or os.path.exists("/usr/sbin/nginx") or os.path.exists("/usr/bin/nginx"))
