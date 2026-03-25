@@ -1,8 +1,8 @@
 # Parley Chat Installer
 
-[🇮🇷 فارسی](README_FA.md)
+[🇮🇷 فارسی](README.fa.md) | [🇪🇸 Español](README.es-es.md)
 
-Automated installer for [Parley Chat](https://github.com/Parley-Chat) — sets up the backend (Sova), frontend (Mura), nginx as an SSL reverse proxy, and systemd services in one command.
+Automated installer for [Parley Chat](https://github.com/Parley-Chat). Sets up the backend (Sova), frontend (Mura), nginx as an SSL reverse proxy, and systemd services in one command.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-Or with curl:
+With curl:
 
 ```bash
 curl -fsSL https://github.com/Parley-Chat/installer/releases/latest/download/install.sh -o install.sh
@@ -46,16 +46,16 @@ When the installer runs, you will first be asked whether to **Install** or **Upd
 
 For a fresh install, you then choose:
 
-**Recommended** — asks only for your domain or IP address and SSL method, then sets everything up with sensible defaults.
+**Recommended** asks only for your domain or IP address and SSL method, then sets everything up with sensible defaults.
 
-**Custom** — lets you configure the HTTPS port, install directory, instance password, thread count, voice calls, and more.
+**Custom** lets you configure the HTTPS port, install directory, instance password, thread count, voice calls, and more.
 
 ## SSL Options
 
 | Option | When to use |
 |--------|-------------|
 | Self-signed | IP addresses, private/local instances, or anywhere behind a firewall |
-| Let's Encrypt - HTTP | Public domain with port 80 open from the internet. Auto-renews. |
+| Let's Encrypt - HTTP | Public domain with port 80 open for the internet. Auto-renews. |
 | Let's Encrypt - DNS | Public domain behind a firewall (e.g. Iranian servers). Requires adding a DNS TXT record. Must be renewed manually every 90 days. |
 
 If you enter an IP address instead of a domain, self-signed is used automatically since Let's Encrypt requires a domain name.
