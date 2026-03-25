@@ -264,11 +264,10 @@ def do_install():
     if not domain:
         print("Domain/IP is required."); sys.exit(1)
 
-    use_nginx = ask("Use built-in nginx reverse proxy? [Y/n]", "y").lower() != "n"
-
     external_port = random.randint(10000, 49151)
     internal_port = INTERNAL_PORT
-    sova_host = "127.0.0.1" if use_nginx else "0.0.0.0"
+    use_nginx = True
+    sova_host = "127.0.0.1"
     install_dir = DEFAULT_INSTALL_DIR
     instance_password = ""
     invite = ""
@@ -276,6 +275,8 @@ def do_install():
     calls = False
 
     if custom:
+        use_nginx = ask("Use built-in nginx reverse proxy? [Y/n]", "y").lower() != "n"
+        sova_host = "127.0.0.1" if use_nginx else "0.0.0.0"
         if use_nginx:
             external_port = int(ask("nginx HTTPS port", str(external_port)))
             internal_port = int(ask("Sova internal port", str(internal_port)))
