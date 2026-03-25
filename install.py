@@ -230,7 +230,7 @@ http {{
     }}
 }}""")
 
-def write_sova_config(path, sova_host, internal_port, instance_password, invite, threads, calls, uri_prefix):
+def write_sova_config(path, install_dir, sova_host, internal_port, instance_password, invite, threads, calls, uri_prefix):
     with open(path, "w") as f:
         f.write(f"""version=6
 
@@ -245,14 +245,14 @@ uri_prefix="{uri_prefix}"
 [frontend]
     hosted=true
     excluded_frontend_root_paths=["README.md", "LICENSE.md", ".nojekyll", "400.html", "404.html", "405.html", "413.html", "415.html", "500.html", ".git", "quickrun.js"]
-    frontend_directory="./mura"
+    frontend_directory="{install_dir}/mura"
 [max_members]
     encrypted_channels=100
     max_channels=50
 [data_dir]
-    pfps="./data/pfps"
-    attachments="./data/attachments"
-    database="./data/parley-chat.db"
+    pfps="{install_dir}/data/pfps"
+    attachments="{install_dir}/data/attachments"
+    database="{install_dir}/data/parley-chat.db"
 [max_file_size]
     pfps=1048576
     attachments=15728640
@@ -358,7 +358,7 @@ def do_install():
         cert_file, key_file, ssl_type = setup_ssl(domain, install_dir)
 
     print("  Writing config...")
-    write_sova_config(f"{install_dir}/config.toml", sova_host, sova_port, instance_password, invite, threads, calls, uri_prefix)
+    write_sova_config(f"{install_dir}/config.toml", install_dir, sova_host, sova_port, instance_password, invite, threads, calls, uri_prefix)
 
     print("  Writing systemd service...")
     write_service("parley-chat", "Parley Chat", install_dir, f"{install_dir}/sova")
