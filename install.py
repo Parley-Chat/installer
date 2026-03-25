@@ -88,7 +88,7 @@ def gen_self_signed(cert_file, key_file, domain):
             "openssl", "req", "-x509", "-newkey", "rsa:2048",
             "-keyout", key_file, "-out", cert_file,
             "-days", "3650", "-nodes", "-config", cfg_path
-        ], check=True)
+        ], check=True, capture_output=True)
     finally:
         os.unlink(cfg_path)
 
