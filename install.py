@@ -5,6 +5,22 @@ MIRROR_BASE = os.environ.get("MIRROR_BASE_URL", "https://github.com/Parley-Chat/
 INTERNAL_PORT = 42836
 DEFAULT_INSTALL_DIR = "/opt/parley-chat"
 
+def system_env():
+    # PyInstaller overrides LD_LIBRARY_PATH with its temp dir, which breaks system binaries
+    # (e.g. openssl loads the wrong libcrypto.so). Restore the original value before any
+    # subprocess call that invokes a system binary.
+    env = os.environ.copy()
+    orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if orig is not None:
+        env["LD_LIBRARY_PATH"] = orig
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+def sysrun(*args, **kwargs):
+    kwargs.setdefault("env", system_env())
+    return sysrun(*args, **kwargs)
+
 def get_arch():
     m = platform.machine().lower()
     if m in ("x86_64", "amd64"): return "x64"
@@ -66,7 +82,7 @@ def gen_self_signed(cert_file, key_file, domain):
         f.write(cfg)
         cfg_path = f.name
     try:
-        subprocess.run([
+        sysrun([
             "openssl", "req", "-x509", "-newkey", "rsa:2048",
             "-keyout", key_file, "-out", cert_file,
             "-days", "3650", "-nodes", "-config", cfg_path
@@ -79,14 +95,14 @@ def nginx_installed():
 
 def install_package(name):
     if shutil.which("apt-get"):
-        subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
-        subprocess.run(["apt-get", "install", "-y", name], check=True, capture_output=True)
+        sysrun(["apt-get", "update", "-qq"], capture_output=True)
+        sysrun(["apt-get", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("dnf"):
-        subprocess.run(["dnf", "install", "-y", name], check=True, capture_output=True)
+        sysrun(["dnf", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("yum"):
-        subprocess.run(["yum", "install", "-y", name], check=True, capture_output=True)
+        sysrun(["yum", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("pacman"):
-        subprocess.run(["pacman", "-S", "--noconfirm", name], check=True, capture_output=True)
+        sysrun(["pacman", "-S", "--noconfirm", name], check=True, capture_output=True)
     else:
         print(f"  Could not detect package manager. Install {name} manually then re-run.")
         sys.exit(1)
@@ -113,14 +129,14 @@ def setup_renewal_cron():
         " --post-hook \"systemctl start nginx 2>/dev/null || true\""
         " --deploy-hook \"systemctl restart parley-chat-nginx\""
     )
-    existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
+    existing = sysrun(["crontab", "-l"], capture_output=True, text=True).stdout
     if "certbot renew" not in existing:
-        subprocess.run(["crontab", "-"], input=existing.rstrip() + "\n" + cron_job + "\n", text=True, check=True)
+        sysrun(["crontab", "-"], input=existing.rstrip() + "\n" + cron_job + "\n", text=True, check=True)
 
 def get_cert_http(domain, email):
     # Uses certbot standalone - port 80 must be free and reachable from the internet
     install_certbot()
-    subprocess.run([
+    sysrun([
         "certbot", "certonly", "--standalone",
         "-d", domain,
         "--non-interactive", "--agree-tos",
@@ -134,7 +150,7 @@ def get_cert_dns(domain, email):
     install_certbot()
     print("\n  certbot will now ask you to add a DNS TXT record to your domain.")
     print("  Follow the instructions on screen and press Enter when the record is added.\n")
-    subprocess.run([
+    sysrun([
         "certbot", "certonly", "--manual",
         "--preferred-challenges", "dns",
         "-d", domain,
@@ -351,11 +367,11 @@ def do_install():
         write_service("parley-chat-nginx", "Parley Chat nginx", install_dir, f"/usr/sbin/nginx -c {nginx_conf} -g 'daemon off;'")
 
     print("  Starting services...")
-    subprocess.run(["systemctl", "daemon-reload"])
+    sysrun(["systemctl", "daemon-reload"])
     services = ["parley-chat", "parley-chat-nginx"] if use_nginx else ["parley-chat"]
     for svc in services:
-        subprocess.run(["systemctl", "enable", svc])
-        subprocess.run(["systemctl", "start", svc])
+        sysrun(["systemctl", "enable", svc])
+        sysrun(["systemctl", "start", svc])
 
     if use_nginx:
         print(f"\nParley Chat is running at https://{domain}:{external_port}/{uri_prefix}/")
@@ -379,7 +395,7 @@ def do_update():
     arch = get_arch()
 
     print("\nUpdating Parley Chat...\n")
-    subprocess.run(["systemctl", "stop", "parley-chat"])
+    sysrun(["systemctl", "stop", "parley-chat"])
 
     download(f"{MIRROR_BASE}/sova-linux-{arch}", f"{install_dir}/sova")
     os.chmod(f"{install_dir}/sova", 0o755)
@@ -393,7 +409,7 @@ def do_update():
         z.extractall(f"{install_dir}/mura")
     os.remove(mura_zip)
 
-    subprocess.run(["systemctl", "start", "parley-chat"])
+    sysrun(["systemctl", "start", "parley-chat"])
     print("\nParley Chat updated successfully.")
 
 def do_uninstall():
@@ -409,14 +425,14 @@ def do_uninstall():
     print("\nUninstalling Parley Chat...\n")
 
     for svc in ["parley-chat-nginx", "parley-chat"]:
-        subprocess.run(["systemctl", "stop", svc], capture_output=True)
-        subprocess.run(["systemctl", "disable", svc], capture_output=True)
+        sysrun(["systemctl", "stop", svc], capture_output=True)
+        sysrun(["systemctl", "disable", svc], capture_output=True)
 
     for f in ["/etc/systemd/system/parley-chat.service", "/etc/systemd/system/parley-chat-nginx.service"]:
         if os.path.exists(f):
             os.remove(f)
 
-    subprocess.run(["systemctl", "daemon-reload"])
+    sysrun(["systemctl", "daemon-reload"])
     shutil.rmtree(install_dir)
 
     print("Parley Chat has been uninstalled.")
