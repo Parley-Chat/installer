@@ -83,9 +83,15 @@ def install_certbot():
     install_package("certbot")
 
 def setup_renewal_cron():
-    # Adds a twice-daily cron job to renew certificates and restart nginx on success.
-    # Our nginx is not on port 80 so no pre/post hooks needed to free the port.
-    cron_job = "0 0,12 * * * /usr/bin/certbot renew --quiet --deploy-hook \"systemctl restart parley-chat-nginx\""
+    # Adds a twice-daily cron job to renew certificates.
+    # Pre/post hooks stop and restart system nginx (port 80) so certbot standalone can bind to it.
+    # Deploy hook restarts parley-chat-nginx to pick up the new certificate.
+    cron_job = (
+        "0 0,12 * * * /usr/bin/certbot renew --quiet"
+        " --pre-hook \"systemctl stop nginx 2>/dev/null || true\""
+        " --post-hook \"systemctl start nginx 2>/dev/null || true\""
+        " --deploy-hook \"systemctl restart parley-chat-nginx\""
+    )
     existing = subprocess.run(["crontab", "-l"], capture_output=True, text=True).stdout
     if "certbot renew" not in existing:
         subprocess.run(["crontab", "-"], input=existing.rstrip() + "\n" + cron_job + "\n", text=True, check=True)
