@@ -1,4 +1,4 @@
-import os, sys, platform, zipfile, subprocess, urllib.request, datetime, shutil, ipaddress, random
+import os, sys, platform, zipfile, subprocess, urllib.request, datetime, shutil, ipaddress, random, string
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,11 +16,23 @@ def get_arch():
     print(f"Unsupported architecture: {m}"); sys.exit(1)
 
 def download(url, dest):
-    print(f"  Downloading {os.path.basename(dest)}...")
+    filename = os.path.basename(dest)
+    large = [False]
+    def reporthook(count, block_size, total_size):
+        if total_size < 1024 * 1024:
+            return
+        large[0] = True
+        downloaded = min(count * block_size, total_size)
+        pct = downloaded * 100 // total_size
+        filled = pct * 25 // 100
+        bar = "=" * filled + (">" if filled < 25 else "") + " " * max(24 - filled, 0)
+        print(f"\r  Downloading {filename}... {pct:3d}% [{bar}] {downloaded/1048576:.1f}/{total_size/1048576:.1f} MB", end="", flush=True)
+    print(f"  Downloading {filename}...", end="", flush=True)
     try:
-        urllib.request.urlretrieve(url, dest)
+        urllib.request.urlretrieve(url, dest, reporthook)
+        print()
     except Exception as e:
-        print(f"  Failed to download {url}: {e}"); sys.exit(1)
+        print(f"\n  Failed to download {url}: {e}"); sys.exit(1)
 
 def ask(prompt, default=None):
     d = f" [{default}]" if default is not None else ""
@@ -33,6 +45,9 @@ def is_ip(host):
         return True
     except ValueError:
         return False
+
+def random_prefix():
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=20))
 
 # Embedded and adapted from Sova's self_ssl.py - generates a self-signed cert for the given domain/IP
 def gen_self_signed(cert_file, key_file, domain):
@@ -57,9 +72,15 @@ def gen_self_signed(cert_file, key_file, domain):
     with open(cert_file, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
+def nginx_installed():
+    return (shutil.which("nginx") or os.path.exists("/usr/sbin/nginx") or os.path.exists("/usr/bin/nginx"))
+
 def install_package(name):
     if shutil.which("apt-get"):
-        subprocess.run(["apt-get", "install", "-y", name], check=True, capture_output=True)
+        result = subprocess.run(["apt-get", "install", "-y", name], capture_output=True)
+        if result.returncode != 0:
+            subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
+            subprocess.run(["apt-get", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("dnf"):
         subprocess.run(["dnf", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("yum"):
@@ -71,7 +92,7 @@ def install_package(name):
         sys.exit(1)
 
 def install_nginx():
-    if shutil.which("nginx"):
+    if nginx_installed():
         return
     print("  nginx not found, installing...")
     install_package("nginx")
@@ -191,11 +212,11 @@ http {{
     }}
 }}""")
 
-def write_sova_config(path, sova_host, internal_port, instance_password, invite, threads, calls):
+def write_sova_config(path, sova_host, internal_port, instance_password, invite, threads, calls, uri_prefix):
     with open(path, "w") as f:
         f.write(f"""version=6
 
-uri_prefix=""
+uri_prefix="{uri_prefix}"
 [server]
     host="{sova_host}"
     port={internal_port}
@@ -264,6 +285,9 @@ def do_install():
     if not domain:
         print("Domain/IP is required."); sys.exit(1)
 
+    uri_prefix = random_prefix()
+    uri_prefix = ask("URI path prefix", uri_prefix)
+
     external_port = random.randint(10000, 49151)
     internal_port = INTERNAL_PORT
     use_nginx = True
@@ -314,7 +338,7 @@ def do_install():
         cert_file, key_file, ssl_type = setup_ssl(domain, install_dir)
 
     print("  Writing config...")
-    write_sova_config(f"{install_dir}/config.toml", sova_host, sova_port, instance_password, invite, threads, calls)
+    write_sova_config(f"{install_dir}/config.toml", sova_host, sova_port, instance_password, invite, threads, calls, uri_prefix)
 
     print("  Writing systemd service...")
     write_service("parley-chat", "Parley Chat", install_dir, f"{install_dir}/sova")
@@ -334,7 +358,7 @@ def do_install():
         subprocess.run(["systemctl", "start", svc])
 
     if use_nginx:
-        print(f"\nParley Chat is running at https://{domain}:{external_port}/")
+        print(f"\nParley Chat is running at https://{domain}:{external_port}/{uri_prefix}/")
         if ssl_type == "self-signed":
             print("Your browser will show a certificate warning - click Advanced -> Proceed to continue.")
         elif ssl_type == "letsencrypt-dns":
@@ -372,6 +396,32 @@ def do_update():
     subprocess.run(["systemctl", "start", "parley-chat"])
     print("\nParley Chat updated successfully.")
 
+def do_uninstall():
+    print()
+    install_dir = ask("Install directory", DEFAULT_INSTALL_DIR)
+    if not os.path.exists(f"{install_dir}/sova"):
+        print(f"No installation found at {install_dir}."); sys.exit(1)
+
+    confirm = ask(f"This will permanently remove {install_dir} and all its contents. Type 'yes' to confirm")
+    if confirm != "yes":
+        print("Cancelled."); sys.exit(0)
+
+    print("\nUninstalling Parley Chat...\n")
+
+    for svc in ["parley-chat-nginx", "parley-chat"]:
+        subprocess.run(["systemctl", "stop", svc], capture_output=True)
+        subprocess.run(["systemctl", "disable", svc], capture_output=True)
+
+    for f in ["/etc/systemd/system/parley-chat.service", "/etc/systemd/system/parley-chat-nginx.service"]:
+        if os.path.exists(f):
+            os.remove(f)
+
+    subprocess.run(["systemctl", "daemon-reload"])
+    shutil.rmtree(install_dir)
+
+    print("Parley Chat has been uninstalled.")
+    print("Note: if a certbot renewal cron job was added, remove it manually with: crontab -e")
+
 def main():
     print("\n=== Parley Chat Installer ===\n")
     if os.geteuid() != 0:
@@ -379,12 +429,15 @@ def main():
         sys.exit(1)
 
     print("[I] Install")
-    print("[U] Update\n")
+    print("[U] Update")
+    print("[X] Uninstall\n")
     action = input("> ").strip().lower()
     if action == "i":
         do_install()
     elif action == "u":
         do_update()
+    elif action == "x":
+        do_uninstall()
     else:
         print("Invalid choice."); sys.exit(1)
 

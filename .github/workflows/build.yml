@@ -39,7 +39,7 @@ jobs:
           pip install -r Sova/requirements.txt
 
       - name: Build Sova
-        run: pyinstaller --onefile --name sova-linux-${{ matrix.arch }} --paths Sova Sova/main.py
+        run: pyinstaller --onefile --name sova-linux-${{ matrix.arch }} --paths Sova --add-data "Sova/version.toml:." --add-data "Sova/default_config.toml:." Sova/main.py
 
       - name: Build installer
         run: pyinstaller --onefile --name installer-linux-${{ matrix.arch }} install.py
