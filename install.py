@@ -264,9 +264,11 @@ def do_install():
     if not domain:
         print("Domain/IP is required."); sys.exit(1)
 
+    use_nginx = ask("Use built-in nginx reverse proxy? [Y/n]", "y").lower() != "n"
+
     external_port = random.randint(10000, 49151)
     internal_port = INTERNAL_PORT
-    sova_host = "127.0.0.1"
+    sova_host = "127.0.0.1" if use_nginx else "0.0.0.0"
     install_dir = DEFAULT_INSTALL_DIR
     instance_password = ""
     invite = ""
@@ -274,9 +276,13 @@ def do_install():
     calls = False
 
     if custom:
-        external_port = int(ask("nginx HTTPS port", str(external_port)))
-        internal_port = int(ask("Sova internal port", str(internal_port)))
-        sova_host = ask("Sova bind host", sova_host)
+        if use_nginx:
+            external_port = int(ask("nginx HTTPS port", str(external_port)))
+            internal_port = int(ask("Sova internal port", str(internal_port)))
+            sova_host = ask("Sova bind host", sova_host)
+        else:
+            external_port = int(ask("Sova port", str(external_port)))
+            sova_host = ask("Sova bind host", sova_host)
         install_dir = ask("Install directory", DEFAULT_INSTALL_DIR)
         instance_password = ask("Instance password (empty = none)", "")
         invite = ask("Auto-invite channel ID (empty = none)", "")
@@ -284,7 +290,6 @@ def do_install():
         calls = ask("Enable voice calls? [y/N]", "n").lower() == "y"
 
     arch = get_arch()
-    nginx_conf = f"{install_dir}/nginx.conf"
 
     print(f"\nInstalling to {install_dir} on port {external_port}...\n")
     for d in [install_dir, f"{install_dir}/certs", f"{install_dir}/data/pfps", f"{install_dir}/data/attachments"]:
@@ -301,33 +306,44 @@ def do_install():
         z.extractall(f"{install_dir}/mura")
     os.remove(mura_zip)
 
-    print("  Setting up SSL...")
-    cert_file, key_file, ssl_type = setup_ssl(domain, install_dir)
+    sova_port = internal_port if use_nginx else external_port
+
+    if use_nginx:
+        print("  Setting up SSL...")
+        cert_file, key_file, ssl_type = setup_ssl(domain, install_dir)
 
     print("  Writing config...")
-    write_sova_config(f"{install_dir}/config.toml", sova_host, internal_port, instance_password, invite, threads, calls)
+    write_sova_config(f"{install_dir}/config.toml", sova_host, sova_port, instance_password, invite, threads, calls)
 
-    print("  Setting up nginx...")
-    install_nginx()
-    write_nginx_conf(nginx_conf, cert_file, key_file, external_port, sova_host, internal_port)
-
-    print("  Writing systemd services...")
+    print("  Writing systemd service...")
     write_service("parley-chat", "Parley Chat", install_dir, f"{install_dir}/sova")
-    write_service("parley-chat-nginx", "Parley Chat nginx", install_dir, f"/usr/sbin/nginx -c {nginx_conf} -g 'daemon off;'")
+
+    if use_nginx:
+        nginx_conf = f"{install_dir}/nginx.conf"
+        print("  Setting up nginx...")
+        install_nginx()
+        write_nginx_conf(nginx_conf, cert_file, key_file, external_port, sova_host, internal_port)
+        write_service("parley-chat-nginx", "Parley Chat nginx", install_dir, f"/usr/sbin/nginx -c {nginx_conf} -g 'daemon off;'")
 
     print("  Starting services...")
     subprocess.run(["systemctl", "daemon-reload"])
-    for svc in ["parley-chat", "parley-chat-nginx"]:
+    services = ["parley-chat", "parley-chat-nginx"] if use_nginx else ["parley-chat"]
+    for svc in services:
         subprocess.run(["systemctl", "enable", svc])
         subprocess.run(["systemctl", "start", svc])
 
-    print(f"\nParley Chat is running at https://{domain}:{external_port}/")
-    if ssl_type == "self-signed":
-        print("Your browser will show a certificate warning - click Advanced -> Proceed to continue.")
-    elif ssl_type == "letsencrypt-dns":
-        print("Note: DNS-verified certificates must be renewed manually every 90 days.")
-        print("To renew: certbot renew --manual --preferred-challenges dns")
-        print("Then restart nginx: systemctl restart parley-chat-nginx")
+    if use_nginx:
+        print(f"\nParley Chat is running at https://{domain}:{external_port}/")
+        if ssl_type == "self-signed":
+            print("Your browser will show a certificate warning - click Advanced -> Proceed to continue.")
+        elif ssl_type == "letsencrypt-dns":
+            print("Note: DNS-verified certificates must be renewed manually every 90 days.")
+            print("To renew: certbot renew --manual --preferred-challenges dns")
+            print("Then restart nginx: systemctl restart parley-chat-nginx")
+    else:
+        print(f"\nParley Chat backend is running on {sova_host}:{external_port}/")
+        print("Point your external reverse proxy to this address.")
+        print("Make sure your proxy sets X-Forwarded-Proto and X-Real-IP headers.")
 
 def do_update():
     print()
