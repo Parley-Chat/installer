@@ -17,9 +17,9 @@ trap "rm -f $TMP" EXIT
 echo "Downloading Parley Chat installer..."
 
 if command -v wget &>/dev/null; then
-    wget -qO "$TMP" "$MIRROR/installer-linux-$ARCH"
+    wget --progress=bar -O "$TMP" "$MIRROR/installer-linux-$ARCH"
 elif command -v curl &>/dev/null; then
-    curl -fsSL "$MIRROR/installer-linux-$ARCH" -o "$TMP"
+    curl -fL --progress-bar "$MIRROR/installer-linux-$ARCH" -o "$TMP"
 else
     echo "Neither wget nor curl found. Please install one of them."
     exit 1

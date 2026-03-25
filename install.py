@@ -1,8 +1,4 @@
-import os, sys, platform, zipfile, subprocess, urllib.request, datetime, shutil, ipaddress, random, string
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
+import os, sys, platform, zipfile, subprocess, urllib.request, shutil, ipaddress, random, string
 
 # Default mirror falls back to GitHub releases if MIRROR_BASE_URL is not set
 MIRROR_BASE = os.environ.get("MIRROR_BASE_URL", "https://github.com/Parley-Chat/installer/releases/latest/download")
@@ -49,38 +45,35 @@ def is_ip(host):
 def random_prefix():
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=20))
 
-# Embedded and adapted from Sova's self_ssl.py - generates a self-signed cert for the given domain/IP
+def install_openssl():
+    if shutil.which("openssl"):
+        return
+    print("  openssl not found, installing...")
+    install_package("openssl")
+
+# Uses openssl CLI instead of the cryptography library to keep the installer binary small
 def gen_self_signed(cert_file, key_file, domain):
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
-    with open(key_file, "wb") as f:
-        f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
-    subject = x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, domain)])
     try:
         ip = ipaddress.ip_address(domain)
-        san = x509.SubjectAlternativeName([x509.IPAddress(ip)])
+        san = f"IP:{ip}"
     except ValueError:
-        san = x509.SubjectAlternativeName([x509.DNSName(domain)])
-    cert = (x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
-        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650))
-        .add_extension(san, critical=False)
-        .sign(key, hashes.SHA256(), default_backend()))
-    with open(cert_file, "wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
+        san = f"DNS:{domain}"
+    install_openssl()
+    subprocess.run([
+        "openssl", "req", "-x509", "-newkey", "rsa:2048",
+        "-keyout", key_file, "-out", cert_file,
+        "-days", "3650", "-nodes",
+        "-subj", f"/CN={domain}",
+        "-addext", f"subjectAltName={san}"
+    ], check=True, capture_output=True)
 
 def nginx_installed():
     return (shutil.which("nginx") or os.path.exists("/usr/sbin/nginx") or os.path.exists("/usr/bin/nginx"))
 
 def install_package(name):
     if shutil.which("apt-get"):
-        result = subprocess.run(["apt-get", "install", "-y", name], capture_output=True)
-        if result.returncode != 0:
-            subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
-            subprocess.run(["apt-get", "install", "-y", name], check=True, capture_output=True)
+        subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
+        subprocess.run(["apt-get", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("dnf"):
         subprocess.run(["dnf", "install", "-y", name], check=True, capture_output=True)
     elif shutil.which("yum"):
