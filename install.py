@@ -295,7 +295,109 @@ RestartSec=5
 WantedBy=multi-user.target
 """)
 
+def installer_dir():
+    # Returns the directory containing the installer binary/script
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def is_local_mode():
+    # Local mode: sova binary and mura.zip are present next to the installer
+    d = installer_dir()
+    arch = get_arch()
+    return os.path.exists(f"{d}/sova-linux-{arch}") and os.path.exists(f"{d}/mura.zip")
+
+def get_or_copy(url, dest, local_src):
+    # Use local file if it exists, otherwise download from mirror
+    if local_src and os.path.exists(local_src):
+        print(f"  Copying {os.path.basename(dest)} from local archive...")
+        shutil.copy2(local_src, dest)
+    else:
+        download(url, dest)
+
+def read_install_info(install_dir):
+    path = f"{install_dir}/.install_info"
+    if not os.path.exists(path):
+        return {}
+    info = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line:
+                k, v = line.split("=", 1)
+                info[k] = v
+    return info
+
+def write_install_info(install_dir, info):
+    with open(f"{install_dir}/.install_info", "w") as f:
+        for k, v in info.items():
+            f.write(f"{k}={v}\n")
+
+def write_auto_update_script(install_dir, mirror, arch):
+    # Writes a self-contained shell script that downloads and applies updates
+    script_path = f"{install_dir}/auto-update.sh"
+    with open(script_path, "w") as f:
+        f.write(f"""#!/bin/bash
+set -e
+MIRROR="{mirror}"
+ARCH="{arch}"
+INSTALL_DIR="{install_dir}"
+systemctl stop parley-chat
+if command -v wget &>/dev/null; then
+    wget -q -O "$INSTALL_DIR/sova.new" "$MIRROR/sova-linux-$ARCH"
+    wget -q -O "$INSTALL_DIR/mura.zip" "$MIRROR/mura.zip"
+elif command -v curl &>/dev/null; then
+    curl -fsSL "$MIRROR/sova-linux-$ARCH" -o "$INSTALL_DIR/sova.new"
+    curl -fsSL "$MIRROR/mura.zip" -o "$INSTALL_DIR/mura.zip"
+else
+    echo "Neither wget nor curl found"; exit 1
+fi
+chmod +x "$INSTALL_DIR/sova.new"
+mv "$INSTALL_DIR/sova.new" "$INSTALL_DIR/sova"
+rm -rf "$INSTALL_DIR/mura"
+mkdir -p "$INSTALL_DIR/mura"
+unzip -q "$INSTALL_DIR/mura.zip" -d "$INSTALL_DIR/mura"
+rm "$INSTALL_DIR/mura.zip"
+systemctl start parley-chat
+""")
+    os.chmod(script_path, 0o755)
+    return script_path
+
+def ask_auto_update_schedule():
+    # Returns (cron_expr, label) for the chosen update schedule
+    print("\nAuto-update schedule:")
+    print("[1] Every 5 minutes")
+    print("[2] Every hour")
+    print("[3] Daily at 3 AM")
+    print("[4] Daily at 4 AM")
+    print("[5] Custom (enter cron expression)\n")
+    choice = input("> ").strip()
+    if choice == "1": return "*/5 * * * *", "every 5 minutes"
+    if choice == "2": return "0 * * * *", "every hour"
+    if choice == "4": return "0 4 * * *", "daily at 4 AM"
+    if choice == "5":
+        expr = ask("Cron expression (e.g. '0 2 * * *' for daily at 2 AM)")
+        return expr, f"on schedule '{expr}'"
+    return "0 3 * * *", "daily at 3 AM"
+
+def setup_auto_update_cron(script_path, cron_expr):
+    # Installs the update cron job with the given schedule
+    cron_job = f"{cron_expr} {script_path} >> /var/log/parley-chat-update.log 2>&1"
+    existing = sysrun(["crontab", "-l"], capture_output=True, text=True).stdout
+    if script_path not in existing:
+        sysrun(["crontab", "-"], input=existing.rstrip() + "\n" + cron_job + "\n", text=True, check=True)
+
+def remove_auto_update_cron(install_dir):
+    script_path = f"{install_dir}/auto-update.sh"
+    existing = sysrun(["crontab", "-l"], capture_output=True, text=True).stdout
+    lines = [l for l in existing.splitlines() if script_path not in l]
+    sysrun(["crontab", "-"], input="\n".join(lines) + "\n", text=True, check=True)
+
 def do_install():
+    local = is_local_mode()
+    if local:
+        print("\n[Local mode] Using bundled files from archive.\n")
+
     print("\n[R] Recommended - quick setup with defaults")
     print("[C] Custom      - configure everything\n")
     mode = input("> ").strip().lower()
@@ -339,17 +441,23 @@ def do_install():
     else:
         instance_password = ask("Instance password (empty = none)", "")
 
+    # Auto-update is only available when a mirror is reachable (not local mode)
+    auto_update = False
+    if not local:
+        auto_update = ask("Enable automatic daily updates? [y/N]", "n").lower() == "y"
+
     arch = get_arch()
 
     print(f"\nInstalling to {install_dir} on port {external_port}...\n")
     for d in [install_dir, f"{install_dir}/certs", f"{install_dir}/data/pfps", f"{install_dir}/data/attachments"]:
         os.makedirs(d, exist_ok=True)
 
-    download(f"{MIRROR_BASE}/sova-linux-{arch}", f"{install_dir}/sova")
+    local_dir = installer_dir() if local else None
+    get_or_copy(f"{MIRROR_BASE}/sova-linux-{arch}", f"{install_dir}/sova", local_dir and f"{local_dir}/sova-linux-{arch}")
     os.chmod(f"{install_dir}/sova", 0o755)
 
     mura_zip = f"{install_dir}/mura.zip"
-    download(f"{MIRROR_BASE}/mura.zip", mura_zip)
+    get_or_copy(f"{MIRROR_BASE}/mura.zip", mura_zip, local_dir and f"{local_dir}/mura.zip")
     print("  Extracting frontend...")
     os.makedirs(f"{install_dir}/mura", exist_ok=True)
     with zipfile.ZipFile(mura_zip, "r") as z:
@@ -375,6 +483,26 @@ def do_install():
         write_nginx_conf(nginx_conf, cert_file, key_file, domain, external_port, sova_host, internal_port)
         write_service("parley-chat-nginx", "Parley Chat nginx", install_dir, f"/usr/sbin/nginx -c {nginx_conf} -g 'daemon off;'")
 
+    auto_update_schedule = "0 3 * * *"
+    auto_update_schedule_label = "daily at 3 AM"
+    if auto_update:
+        print("  Setting up auto-update...")
+        auto_update_schedule, auto_update_schedule_label = ask_auto_update_schedule()
+        script_path = write_auto_update_script(install_dir, MIRROR_BASE, arch)
+        setup_auto_update_cron(script_path, auto_update_schedule)
+
+    write_install_info(install_dir, {
+        "domain": domain,
+        "external_port": str(external_port),
+        "internal_port": str(internal_port),
+        "sova_host": sova_host,
+        "use_nginx": str(use_nginx).lower(),
+        "ssl_type": ssl_type if use_nginx else "none",
+        "mirror": MIRROR_BASE,
+        "auto_update": str(auto_update).lower(),
+        "auto_update_schedule": auto_update_schedule,
+    })
+
     print("  Starting services...")
     sysrun(["systemctl", "daemon-reload"])
     services = ["parley-chat", "parley-chat-nginx"] if use_nginx else ["parley-chat"]
@@ -395,7 +523,14 @@ def do_install():
         print("Point your external reverse proxy to this address.")
         print("Make sure your proxy sets X-Forwarded-Proto and X-Real-IP headers.")
 
+    if auto_update:
+        print(f"Auto-update is enabled and will run {auto_update_schedule_label}.")
+
 def do_update():
+    local = is_local_mode()
+    if local:
+        print("\n[Local mode] Using bundled files from archive.\n")
+
     print()
     install_dir = ask("Install directory", DEFAULT_INSTALL_DIR)
     if not os.path.exists(f"{install_dir}/sova"):
@@ -406,11 +541,12 @@ def do_update():
     print("\nUpdating Parley Chat...\n")
     sysrun(["systemctl", "stop", "parley-chat"])
 
-    download(f"{MIRROR_BASE}/sova-linux-{arch}", f"{install_dir}/sova")
+    local_dir = installer_dir() if local else None
+    get_or_copy(f"{MIRROR_BASE}/sova-linux-{arch}", f"{install_dir}/sova", local_dir and f"{local_dir}/sova-linux-{arch}")
     os.chmod(f"{install_dir}/sova", 0o755)
 
     mura_zip = f"{install_dir}/mura.zip"
-    download(f"{MIRROR_BASE}/mura.zip", mura_zip)
+    get_or_copy(f"{MIRROR_BASE}/mura.zip", mura_zip, local_dir and f"{local_dir}/mura.zip")
     print("  Extracting frontend...")
     shutil.rmtree(f"{install_dir}/mura", ignore_errors=True)
     os.makedirs(f"{install_dir}/mura", exist_ok=True)
@@ -447,6 +583,54 @@ def do_uninstall():
     print("Parley Chat has been uninstalled.")
     print("Note: if a certbot renewal cron job was added, remove it manually with: crontab -e")
 
+def do_modify():
+    print()
+    install_dir = ask("Install directory", DEFAULT_INSTALL_DIR)
+    if not os.path.exists(f"{install_dir}/sova"):
+        print(f"No installation found at {install_dir}."); sys.exit(1)
+
+    info = read_install_info(install_dir)
+    use_nginx = info.get("use_nginx", "true") == "true"
+    auto_update_enabled = info.get("auto_update", "false") == "true"
+
+    print("\n[C] Renew SSL certificate")
+    print(f"[A] {'Disable' if auto_update_enabled else 'Enable'} auto-update")
+    print()
+    choice = input("> ").strip().lower()
+
+    if choice == "c":
+        if not use_nginx:
+            print("nginx is not in use - no certificate to renew."); sys.exit(1)
+        domain = info.get("domain") or ask("Domain or IP address")
+        cert_file, key_file, ssl_type = setup_ssl(domain, install_dir)
+        nginx_conf = f"{install_dir}/nginx.conf"
+        external_port = int(info.get("external_port", 443))
+        sova_host = info.get("sova_host", "127.0.0.1")
+        internal_port = int(info.get("internal_port", str(INTERNAL_PORT)))
+        write_nginx_conf(nginx_conf, cert_file, key_file, domain, external_port, sova_host, internal_port)
+        sysrun(["systemctl", "restart", "parley-chat-nginx"])
+        info["ssl_type"] = ssl_type
+        write_install_info(install_dir, info)
+        print("\nCertificate updated and nginx restarted.")
+    elif choice == "a":
+        if auto_update_enabled:
+            remove_auto_update_cron(install_dir)
+            info["auto_update"] = "false"
+            write_install_info(install_dir, info)
+            print("\nAuto-update disabled.")
+        else:
+            arch = get_arch()
+            mirror = info.get("mirror", MIRROR_BASE)
+            cron_expr, schedule_label = ask_auto_update_schedule()
+            script_path = write_auto_update_script(install_dir, mirror, arch)
+            setup_auto_update_cron(script_path, cron_expr)
+            info["auto_update"] = "true"
+            info["auto_update_schedule"] = cron_expr
+            write_install_info(install_dir, info)
+            print(f"\nAuto-update enabled ({schedule_label}).")
+    else:
+        print("Invalid choice."); sys.exit(1)
+
 def main():
     print("\n=== Parley Chat Installer ===\n")
     if os.geteuid() != 0:
@@ -455,12 +639,15 @@ def main():
 
     print("[I] Install")
     print("[U] Update")
+    print("[M] Modify")
     print("[X] Uninstall\n")
     action = input("> ").strip().lower()
     if action == "i":
         do_install()
     elif action == "u":
         do_update()
+    elif action == "m":
+        do_modify()
     elif action == "x":
         do_uninstall()
     else:
