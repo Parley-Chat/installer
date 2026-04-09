@@ -650,6 +650,7 @@ def do_modify():
             arch = get_arch()
             mirror = info.get("mirror", MIRROR_BASE)
             cron_expr, schedule_label = ask_auto_update_schedule()
+            save_installed_version(install_dir, mirror)
             script_path = write_auto_update_script(install_dir, mirror, arch)
             setup_auto_update_cron(script_path, cron_expr)
             info["auto_update"] = "true"
