@@ -112,7 +112,7 @@ When installing (online mode only), the installer asks if you want automatic upd
 | Daily at 4 AM | `0 4 * * *` |
 | Custom | enter any cron expression |
 
-The installer writes `auto-update.sh` in the install directory and registers a cron job. Update output is logged to `/var/log/parley-chat-update.log`.
+The installer writes `auto-update.sh` in the install directory and registers a cron job. Each run fetches `version.txt` from the mirror and compares it to the locally saved `.version` file — it only downloads and restarts if a new version is available. Update output is logged to `/var/log/parley-chat-update.log`.
 
 You can enable or disable auto-update at any time from the **Modify** menu.
 
