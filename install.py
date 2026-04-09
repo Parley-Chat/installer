@@ -333,8 +333,18 @@ def write_install_info(install_dir, info):
         for k, v in info.items():
             f.write(f"{k}={v}\n")
 
+def save_installed_version(install_dir, mirror):
+    # Fetches version.txt from the mirror and saves it to .version
+    try:
+        with urllib.request.urlopen(f"{mirror}/version.txt") as r:
+            version = r.read().decode().strip()
+        with open(f"{install_dir}/.version", "w") as f:
+            f.write(version + "\n")
+    except Exception:
+        pass
+
 def write_auto_update_script(install_dir, mirror, arch):
-    # Writes a self-contained shell script that downloads and applies updates
+    # Writes a self-contained shell script that checks for a new version and updates if needed
     script_path = f"{install_dir}/auto-update.sh"
     with open(script_path, "w") as f:
         f.write(f"""#!/bin/bash
@@ -342,15 +352,26 @@ set -e
 MIRROR="{mirror}"
 ARCH="{arch}"
 INSTALL_DIR="{install_dir}"
+VERSION_FILE="$INSTALL_DIR/.version"
+if command -v wget &>/dev/null; then
+    REMOTE_VERSION=$(wget -qO- "$MIRROR/version.txt" 2>/dev/null || true)
+elif command -v curl &>/dev/null; then
+    REMOTE_VERSION=$(curl -fsSL "$MIRROR/version.txt" 2>/dev/null || true)
+else
+    echo "Neither wget nor curl found"; exit 1
+fi
+LOCAL_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || true)
+if [ -z "$REMOTE_VERSION" ] || [ "$LOCAL_VERSION" = "$REMOTE_VERSION" ]; then
+    exit 0
+fi
+echo "Updating from $LOCAL_VERSION to $REMOTE_VERSION"
 systemctl stop parley-chat
 if command -v wget &>/dev/null; then
     wget -q -O "$INSTALL_DIR/sova.new" "$MIRROR/sova-linux-$ARCH"
     wget -q -O "$INSTALL_DIR/mura.zip" "$MIRROR/mura.zip"
-elif command -v curl &>/dev/null; then
+else
     curl -fsSL "$MIRROR/sova-linux-$ARCH" -o "$INSTALL_DIR/sova.new"
     curl -fsSL "$MIRROR/mura.zip" -o "$INSTALL_DIR/mura.zip"
-else
-    echo "Neither wget nor curl found"; exit 1
 fi
 chmod +x "$INSTALL_DIR/sova.new"
 mv "$INSTALL_DIR/sova.new" "$INSTALL_DIR/sova"
@@ -358,6 +379,7 @@ rm -rf "$INSTALL_DIR/mura"
 mkdir -p "$INSTALL_DIR/mura"
 unzip -q "$INSTALL_DIR/mura.zip" -d "$INSTALL_DIR/mura"
 rm "$INSTALL_DIR/mura.zip"
+echo "$REMOTE_VERSION" > "$VERSION_FILE"
 systemctl start parley-chat
 """)
     os.chmod(script_path, 0o755)
@@ -485,6 +507,9 @@ def do_install():
 
     auto_update_schedule = "0 3 * * *"
     auto_update_schedule_label = "daily at 3 AM"
+    if not local:
+        save_installed_version(install_dir, MIRROR_BASE)
+
     if auto_update:
         print("  Setting up auto-update...")
         auto_update_schedule, auto_update_schedule_label = ask_auto_update_schedule()
@@ -553,6 +578,9 @@ def do_update():
     with zipfile.ZipFile(mura_zip, "r") as z:
         z.extractall(f"{install_dir}/mura")
     os.remove(mura_zip)
+
+    if not local:
+        save_installed_version(install_dir, MIRROR_BASE)
 
     sysrun(["systemctl", "start", "parley-chat"])
     print("\nParley Chat updated successfully.")
