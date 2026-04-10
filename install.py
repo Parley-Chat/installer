@@ -174,7 +174,8 @@ def setup_ssl(domain, install_dir):
     print("\nSSL Certificate:")
     print("[1] Self-signed (works everywhere, browser warning on first visit)")
     print("[2] Let's Encrypt - HTTP verification (port 80 must be open from internet, auto-renews)")
-    print("[3] Let's Encrypt - DNS verification (works behind firewall, requires adding a DNS TXT record)\n")
+    print("[3] Let's Encrypt - DNS verification (works behind firewall, requires adding a DNS TXT record)")
+    print("[4] Use existing certificates (provide paths)\n")
     ssl_choice = input("> ").strip()
 
     if ssl_choice == "2":
@@ -185,6 +186,10 @@ def setup_ssl(domain, install_dir):
         email = ask("Email address for Let's Encrypt notifications")
         cert_file, key_file = get_cert_dns(domain, email)
         return cert_file, key_file, "letsencrypt-dns"
+    elif ssl_choice == "4":
+        cert_file = ask("Path to certificate file (PEM)")
+        key_file = ask("Path to private key file (PEM)")
+        return cert_file, key_file, "custom"
     else:
         cert_file = f"{install_dir}/certs/cert.pem"
         key_file = f"{install_dir}/certs/key.pem"
