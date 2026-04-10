@@ -97,6 +97,7 @@ Stops and disables all services, removes systemd unit files, and deletes the ins
 | Self-signed | IP addresses, private/local instances, or anywhere behind a firewall |
 | Let's Encrypt - HTTP | Public domain with port 80 open for the internet. Auto-renews. |
 | Let's Encrypt - DNS | Public domain behind a firewall (e.g. Iranian servers). Requires adding a DNS TXT record. Must be renewed manually every 90 days. |
+| Use existing certificates | You already have a certificate and private key (PEM format); provide the file paths. |
 
 If you enter an IP address instead of a domain, self-signed is used automatically since Let's Encrypt requires a domain name.
 
