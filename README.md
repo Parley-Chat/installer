@@ -77,14 +77,14 @@ At the end of installation you are asked whether to enable **auto-update** (see 
 
 Downloads the latest Sova binary and Mura frontend, replaces them in place, and restarts the backend. Your `config.toml`, certificates, and data are untouched.
 
-Works in local mode too — place the new `sova-linux-<arch>` and `mura.zip` next to the installer before running.
+Works in local mode too. Place the new `sova-linux-<arch>` and `mura.zip` next to the installer before running.
 
 ### Modify
 
 Post-install changes without reinstalling:
 
-- **Renew SSL certificate** — re-run the SSL setup flow (same options as during install); updates `nginx.conf` and restarts nginx automatically
-- **Enable / Disable auto-update** — toggle the daily update cron job
+- **Renew SSL certificate**: re-run the SSL setup flow (same options as during install); updates `nginx.conf` and restarts nginx automatically
+- **Enable / Disable auto-update**: toggle the daily update cron job
 
 ### Uninstall
 
@@ -112,7 +112,7 @@ When installing (online mode only), the installer asks if you want automatic upd
 | Daily at 4 AM | `0 4 * * *` |
 | Custom | enter any cron expression |
 
-The installer writes `auto-update.sh` in the install directory and registers a cron job. Each run fetches `version.txt` from the mirror and compares it to the locally saved `.version` file — it only downloads and restarts if a new version is available. Update output is logged to `/var/log/parley-chat-update.log`.
+The installer writes `auto-update.sh` in the install directory and registers a cron job. Each run fetches `version.txt` from the mirror and compares it to the locally saved `.version` file, it only downloads and restarts if a new version is available. Update output is logged to `/var/log/parley-chat-update.log`.
 
 You can enable or disable auto-update at any time from the **Modify** menu.
 
