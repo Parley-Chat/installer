@@ -97,6 +97,7 @@ Detiene y deshabilita todos los servicios, elimina los archivos de unidad de sys
 | Autofirmado (Self-signed) | Direcciones IP, instancias privadas/locales o cualquier lugar protegido por un cortafuegos |
 | Let's Encrypt - HTTP | Dominio público con puerto 80 abierto para Internet. Se renueva automáticamente. |
 | Let's Encrypt - DNS | Dominio público protegido por cortafuegos (por ejemplo servidores iraníes). Requiere añadir un récord DNS TXT. Debe renovarse manualmente cada 90 días. |
+| Usar certificados existentes | Si ya tienes un certificado y una llave privada (formato PEM); indica las rutas de los archivos. |
 
 Si introduces una dirección IP en lugar de un dominio, se utiliza automáticamente un certificado autofirmado, ya que Let's Encrypt requiere un nombre de dominio.
 
